@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Div Brawlers - Batalla por la Parrilla</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0d0d18;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        h1 {
+            margin: 10px 0;
+            font-size: 22px;
+            color: #f1c40f;
+            text-shadow: 2px 2px #e74c3c;
+            text-align: center;
+        }
+        #game-wrapper {
+            position: relative;
+            width: 800px;
+            max-width: 98vw;
+            border: 4px solid #fff;
+            box-shadow: 0 0 20px rgba(231, 76, 60, 0.4);
+            background: #111;
+        }
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        .player-hud { width: 40%; }
+        .player-name {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+        .health-bg {
+            width: 100%;
+            height: 20px;
+            background-color: #333;
+            border: 2px solid #fff;
+        }
+        .health-fill {
+            height: 100%;
+            width: 100%;
+            transition: width 0.1s ease;
+        }
+        #p1-health { background-color: #2ecc71; }
+        #p2-health { background-color: #e74c3c; }
+        #round-info { font-size: 14px; color: #f1c40f; font-weight: bold; }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #1a1a2e;
+        }
+
+        #controls {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            max-width: 98vw;
+            margin-top: 10px;
+            gap: 10px;
+        }
+        .control-group { display: flex; gap: 6px; }
+        .btn {
+            background: #2c3e50;
+            color: #fff;
+            border: 2px solid #ecf0f1;
+            padding: 12px 14px;
+            font-size: 13px;
+            font-family: inherit;
+            border-radius: 6px;
+            touch-action: manipulation;
+            cursor: pointer;
+        }
+        .btn:active { background: #415b76; }
+        .btn-attack { background: #e74c3c; border-color: #f39c12; }
+        .btn-special { background: #9b59b6; border-color: #8e44ad; }
+
+        .instructions {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #aaa;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>DIV BRAWLERS: LUCHA POR LA PARRILLA 🍖</h1>
+
+    <div id="game-wrapper">
+        <div id="hud">
+            <div class="player-hud">
+                <div class="player-name" style="color: #3498db;">EL PARRILLERO</div>
+                <div class="health-bg"><div id="p1-health" class="health-fill"></div></div>
+            </div>
+            <div id="round-info">¡BATALLA!</div>
+            <div class="player-hud" style="text-align: right;">
+                <div class="player-name" style="color: #e74c3c;">&lt;HTML_BOSS&gt;</div>
+                <div class="health-bg"><div id="p2-health" class="health-fill"></div></div>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    </div>
+
+    <div id="controls">
+        <div class="control-group">
+            <button class="btn" id="btn-left">◀</button>
+            <button class="btn" id="btn-right">▶</button>
+            <button class="btn" id="btn-jump">▲ SALTAR</button>
+        </div>
+        <div class="control-group">
+            <button class="btn btn-attack" id="btn-attack">⚔️ CUCHILLO</button>
+            <button class="btn btn-special" id="btn-special">🔥 ESPECIAL</button>
+        </div>
+    </div>
+
+    <div class="instructions">
+        <b>PC:</b> A/D (Mover) | W (Saltar) | Espacio (Cuchillo) | E (Ataque Especial)
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const gravity = 0.6;
+const floorY = 340;
+
+// Estado de la parrilla (Premio)
+let grillTaken = false;
+let winnerName = null;
+
+// Jugador 1
+const player1 = {
+    x: 120, y: 200, width: 50, height: 100,
+    velocityX: 0, velocityY: 0, speed: 5, jumpForce: -13,
+    isGrounded: false, health: 100, isAttacking: false, attackType: 'normal',
+    attackBox: { width: 65, height: 30 }, facing: 'right'
+};
+
+// Jugador 2 (IA)
+const player2 = {
+    x: 630, y: 200, width: 50, height: 100,
+    velocityX: 0, velocityY: 0, speed: 2.8, jumpForce: -13,
+    isGrounded: false, health: 100, isAttacking: false, attackType: 'normal',
+    attackBox: { width: 60, height: 40 }, facing: 'left'
+};
+
+const keys = { a: false, d: false, w: false, space: false, e: false };
+
+window.addEventListener('keydown', (evt) => {
+    if (evt.key === 'a' || evt.key === 'A') keys.a = true;
+    if (evt.key === 'd' || evt.key === 'D') keys.d = true;
+    if (evt.key === 'w' || evt.key === 'W') keys.w = true;
+    if (evt.code === 'Space') {
+        if (!keys.space) doAttack(player1, 'normal');
+        keys.space = true;
+    }
+    if (evt.key === 'e' || evt.key === 'E') {
+        if (!keys.e) doAttack(player1, 'special');
+        keys.e = true;
+    }
+});
+
+window.addEventListener('keyup', (evt) => {
+    if (evt.key === 'a' || evt.key === 'A') keys.a = false;
+    if (evt.key === 'd' || evt.key === 'D') keys.d = false;
+    if (evt.key === 'w' || evt.key === 'W') keys.w = false;
+    if (evt.code === 'Space') keys.space = false;
+    if (evt.key === 'e' || evt.key === 'E') keys.e = false;
+});
+
+const setupTouch = (id, keyName) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyName] = true; });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyName] = false; });
+    el.addEventListener('mousedown', () => keys[keyName] = true);
+    el.addEventListener('mouseup', () => keys[keyName] = false);
+};
+
+setupTouch('btn-left', 'a');
+setupTouch('btn-right', 'd');
+document.getElementById('btn-jump').addEventListener('click', () => {
+    if (player1.isGrounded) { player1.velocityY = player1.jumpForce; player1.isGrounded = false; }
+});
+document.getElementById('btn-attack').addEventListener('click', () => doAttack(player1, 'normal'));
+document.getElementById('btn-special').addEventListener('click', () => doAttack(player1, 'special'));
+
+function doAttack(char, type) {
+    if (!char.isAttacking && char.health > 0) {
+        char.isAttacking = true;
+        char.attackType = type;
+        const damage = type === 'special' ? 20 : 10;
+        
+        setTimeout(() => { char.isAttacking = false; }, 250);
+
+        const target = (char === player1) ? player2 : player1;
+        const attackX = (char.facing === 'right') ? char.x + char.width : char.x - char.attackBox.width;
+
+        if (
+            attackX < target.x + target.width &&
+            attackX + char.attackBox.width > target.x &&
+            char.y < target.y + target.height &&
+            char.y + char.attackBox.height > target.y
+        ) {
+            target.health = Math.max(0, target.health - damage);
+            updateHUD();
+        }
+    }
+}
+
+function updateHUD() {
+    document.getElementById('p1-health').style.width = player1.health + '%';
+    document.getElementById('p2-health').style.width = player2.health + '%';
+}
+
+function update() {
+    // Si la pelea terminó, el ganador va por la parrilla
+    if (player1.health <= 0 || player2.health <= 0) {
+        const winner = player1.health > 0 ? player1 : player2;
+        winnerName = player1.health > 0 ? 'EL PARRILLERO' : '<HTML_BOSS>';
+        
+        // El ganador camina hacia el centro (x = 375) para llevarse la parrilla
+        if (Math.abs(winner.x - 375) > 10) {
+            winner.x += winner.x < 375 ? 2 : -2;
+            winner.facing = winner.x < 375 ? 'right' : 'left';
+        } else {
+            grillTaken = true; // ¡Se lleva la parrilla!
+        }
+        return;
+    }
+
+    // Movimiento P1
+    if (keys.a) { player1.velocityX = -player1.speed; player1.facing = 'left'; }
+    else if (keys.d) { player1.velocityX = player1.speed; player1.facing = 'right'; }
+    else { player1.velocityX = 0; }
+
+    if (keys.w && player1.isGrounded) { player1.velocityY = player1.jumpForce; player1.isGrounded = false; }
+
+    player1.velocityY += gravity;
+    player1.x += player1.velocityX;
+    player1.y += player1.velocityY;
+
+    if (player1.y + player1.height >= floorY) {
+        player1.y = floorY - player1.height;
+        player1.velocityY = 0;
+        player1.isGrounded = true;
+    }
+    player1.x = Math.max(0, Math.min(canvas.width - player1.width, player1.x));
+
+    // IA P2
+    const dist = player1.x - player2.x;
+    if (Math.abs(dist) > 55) {
+        player2.velocityX = dist > 0 ? player2.speed : -player2.speed;
+        player2.facing = dist > 0 ? 'right' : 'left';
+    } else {
+        player2.velocityX = 0;
+        if (Math.random() < 0.03) doAttack(player2, Math.random() < 0.3 ? 'special' : 'normal');
+    }
+
+    player2.velocityY += gravity;
+    player2.x += player2.velocityX;
+    player2.y += player2.velocityY;
+
+    if (player2.y + player2.height >= floorY) {
+        player2.y = floorY - player2.height;
+        player2.velocityY = 0;
+        player2.isGrounded = true;
+    }
+    player2.x = Math.max(0, Math.min(canvas.width - player2.width, player2.x));
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Fondo
+    ctx.fillStyle = '#1e1e2f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Suelo
+    ctx.fillStyle = '#444466';
+    ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
+    ctx.fillStyle = '#222233';
+    ctx.fillRect(0, floorY, canvas.width, 6);
+
+    // Mesa con la Parrilla en el Centro
+    if (!grillTaken) {
+        ctx.fillStyle = '#7f8c8d';
+        ctx.fillRect(375, floorY - 30, 50, 30); // Mesa
+        drawGrillPlate(380, floorY - 42); // Plato con comida
+    }
+
+    // Dibujar Jugadores
+    drawParrillero(player1);
+    drawHTMLBoss(player2);
+
+    // Pantalla de Victoria / Final
+    if (player1.health <= 0 || player2.health <= 0) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(0, 0, canvas.width, 90);
+        
+        ctx.fillStyle = '#f1c40f';
+        ctx.font = '22px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(`¡GANÓ ${winnerName}!`, canvas.width / 2, 40);
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px Courier New';
+        ctx.fillText(grillTaken ? '¡Se ha llevado el plato de parrilla!' : 'Reclamando la parrilla...', canvas.width / 2, 65);
+    }
+}
+
+function drawGrillPlate(x, y) {
+    ctx.fillStyle = '#bdc3c7';
+    ctx.fillRect(x, y + 6, 40, 6); // Plato
+    ctx.fillStyle = '#d35400';
+    ctx.fillRect(x + 5, y, 15, 6); // Carne
+    ctx.fillStyle = '#27ae60';
+    ctx.fillRect(x + 22, y + 2, 12, 4); // Acompañante
+}
+
+function drawParrillero(p) {
+    if (p.health <= 0) return; // Caído si pierde
+    ctx.save();
+    ctx.translate(p.x, p.y);
+
+    // Camiseta Celeste
+    ctx.fillStyle = '#5ac8fa';
+    ctx.fillRect(5, 30, 40, 40);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('NIKE', 12, 48);
+
+    // Pantalón y Zapatos
+    ctx.fillStyle = '#2c3e50';
+    ctx.fillRect(8, 70, 15, 30);
+    ctx.fillRect(27, 70, 15, 30);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(5, 95, 18, 8);
+    ctx.fillRect(27, 95, 18, 8);
+
+    // Cara y Pelo
+    ctx.fillStyle = '#f3a683';
+    ctx.fillRect(10, 5, 30, 25);
+    ctx.fillStyle = '#2d3436';
+    ctx.fillRect(8, 0, 34, 10);
+
+    // Si ganó y tomó la parrilla
+    if (grillTaken && winnerName === 'EL PARRILLERO') {
+        drawGrillPlate(p.facing === 'right' ? 30 : -20, 40);
+    }
+
+    // Ataques
+    if (p.isAttacking) {
+        const atkX = p.facing === 'right' ? 45 : -25;
+        if (p.attackType === 'special') {
+            ctx.fillStyle = '#f39c12';
+            ctx.fillRect(atkX, 20, 35, 35); // Bola de fuego
+        } else {
+            ctx.fillStyle = '#ecf0f1';
+            ctx.fillRect(atkX, 35, 25, 8); // Cuchillo
+        }
+    }
+
+    ctx.restore();
+}
+
+function drawHTMLBoss(p) {
+    if (p.health <= 0) return;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+
+    // Fuego Cabeza
+    ctx.fillStyle = '#e67e22';
+    ctx.beginPath();
+    ctx.arc(25, 20, 22, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cuerpo Stickman
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(25, 35); ctx.lineTo(25, 70);
+    ctx.moveTo(25, 70); ctx.lineTo(10, 100);
+    ctx.moveTo(25, 70); ctx.lineTo(40, 100);
+    ctx.moveTo(25, 45); ctx.lineTo(5, 55);
+    ctx.moveTo(25, 45); ctx.lineTo(45, 55);
+    ctx.stroke();
+
+    ctx.fillStyle = '#e74c3c';
+    ctx.fillRect(15, 38, 20, 25);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px monospace';
+    ctx.fillText('<DIV>', 10, 18);
+    ctx.fillText('<P>', 18, 52);
+
+    if (grillTaken && winnerName === '<HTML_BOSS>') {
+        drawGrillPlate(p.facing === 'right' ? 30 : -20, 40);
+    }
+
+    if (p.isAttacking) {
+        const atkX = p.facing === 'right' ? 45 : -35;
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(atkX, 35, 30, 20);
+    }
+
+    ctx.restore();
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+</body>
+</html>
